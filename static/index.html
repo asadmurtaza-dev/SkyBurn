@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SkyBurn</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="vendor/leaflet.draw.css">
+<style>
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --plane: #f9f9f7;
+  --ink-1: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+
+  --series-1: #2a78d6;   /* harmonized */
+  --series-2: #eb6834;   /* raw / unadjusted */
+
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+
+  /* sequential blue ramp — calendar heatmap */
+  --seq-0: #f0efec;
+  --seq-1: #cde2fb;
+  --seq-2: #9ec5f4;
+  --seq-3: #6da7ec;
+  --seq-4: #3987e5;
+  --seq-5: #256abf;
+  --seq-6: #184f95;
+  --seq-7: #0d366b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --ink-1: #f0efec;
+    --ink-2: #c3c2b7;
+    --ink-muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --seq-0: #383835;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --plane: #0d0d0d;
+  --ink-1: #f0efec;
+  --ink-2: #c3c2b7;
+  --ink-muted: #898781;
+  --grid: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255,255,255,0.10);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --seq-0: #383835;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink-1);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+
+header.top {
+  display: flex; align-items: baseline; gap: 12px;
+  flex-wrap: wrap; margin-bottom: 4px;
+}
+h1 {
+  font-size: 26px; font-weight: 650; letter-spacing: -0.02em;
+  margin: 0;
+}
+.tagline { color: var(--ink-2); font-size: 14px; }
+.subhead {
+  color: var(--ink-muted); font-size: 13px;
+  margin: 0 0 24px; padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card h2 {
+  font-size: 13px; font-weight: 650; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--ink-2);
+  margin: 0 0 4px;
+}
+.card .note {
+  font-size: 13px; color: var(--ink-muted); margin: 0 0 16px;
+}
+
+/* ---- controls row ---- */
+.controls {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  margin-bottom: 16px;
+}
+.controls .spacer { flex: 1 1 auto; }
+button, select, input {
+  font: inherit; color: var(--ink-1);
+  background: var(--surface-1);
+  border: 1px solid var(--baseline);
+  border-radius: 7px; padding: 7px 12px;
+  cursor: pointer;
+}
+button:hover, select:hover { background: var(--plane); }
+button.primary {
+  background: var(--series-1); border-color: var(--series-1);
+  color: #fff; font-weight: 550;
+}
+button.primary:hover { filter: brightness(0.93); background: var(--series-1); }
+input[type=number] { width: 86px; cursor: text; }
+.seg { display: inline-flex; border: 1px solid var(--baseline); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 7px 14px; }
+.seg button + button { border-left: 1px solid var(--baseline); }
+.seg button[aria-pressed="true"] {
+  background: var(--series-1); color: #fff; font-weight: 550;
+}
+
+/* ---- status hero ---- */
+.status {
+  display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;
+}
+.status .light {
+  width: 13px; height: 13px; border-radius: 50%;
+  flex: 0 0 auto; margin-top: 7px;
+}
+.status .body { flex: 1 1 320px; min-width: 0; }
+.status .label {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-2);
+  display: flex; align-items: center; gap: 7px;
+}
+.status .hero {
+  font-size: 40px; font-weight: 650; letter-spacing: -0.03em;
+  line-height: 1.1; margin: 6px 0 2px;
+}
+.status .hero small {
+  font-size: 15px; font-weight: 450; color: var(--ink-2);
+  letter-spacing: 0;
+}
+.status .msg { color: var(--ink-2); font-size: 14px; max-width: 60ch; }
+
+.stats {
+  display: flex; gap: 28px; flex-wrap: wrap;
+  padding-top: 16px; margin-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.stat .k {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-muted); margin-bottom: 3px;
+}
+.stat .v { font-size: 19px; font-weight: 600; }
+.stat .v small { font-size: 13px; font-weight: 400; color: var(--ink-2); }
+
+/* ---- map ---- */
+.map-wrap { position: relative; }
+/* Tall enough that a roughly square region is not zoom-limited by height.
+   A short map makes fitBounds cap the zoom and the selection looks lost. */
+#map { height: 440px; border-radius: 8px; border: 1px solid var(--border); }
+@media (max-width: 700px) { #map { height: 340px; } }
+
+.map-caption {
+  position: absolute; left: 12px; bottom: 12px; z-index: 500;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 7px; padding: 8px 11px;
+  font-size: 12px; color: var(--ink-2); line-height: 1.5;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+  max-width: 230px; pointer-events: none;
+}
+.map-caption b { color: var(--ink-1); font-weight: 600; }
+.map-caption .ramp { margin-top: 7px; gap: 6px; font-size: 11px; }
+.map-caption .ramp i { width: 15px; height: 9px; }
+.map-caption .hint { color: var(--ink-muted); font-size: 11px; display: block; margin-top: 5px; }
+
+/* ---- calendar ---- */
+.cal-scroll { overflow-x: auto; }
+table.cal { border-collapse: separate; border-spacing: 2px; }
+table.cal th {
+  font-size: 11px; font-weight: 550; color: var(--ink-muted);
+  padding: 3px 5px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+table.cal th.yr { text-align: right; padding-right: 8px; }
+table.cal td {
+  width: 42px; height: 23px; border-radius: 3px;
+  background: var(--seq-0);
+}
+table.cal td[data-v] { cursor: pointer; }
+table.cal td[data-v]:hover { outline: 2px solid var(--ink-1); outline-offset: 1px; }
+table.cal td.sel { outline: 2px solid var(--series-2); outline-offset: 1px; }
+
+.ramp { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--ink-muted); }
+.ramp .sw { display: flex; gap: 2px; }
+.ramp .sw i { width: 26px; height: 11px; border-radius: 2px; display: block; }
+
+/* ---- svg charts ---- */
+.chart { width: 100%; display: block; }
+.legend {
+  display: flex; gap: 18px; flex-wrap: wrap;
+  font-size: 13px; color: var(--ink-2); margin-top: 10px;
+}
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { width: 13px; height: 3px; border-radius: 2px; display: block; }
+
+/* ---- verdict callout ---- */
+.verdict {
+  background: var(--plane); border: 1px solid var(--border);
+  border-left: 3px solid var(--series-1);
+  border-radius: 7px; padding: 13px 15px; margin-top: 16px;
+  font-size: 14px; color: var(--ink-2);
+}
+.verdict b { color: var(--ink-1); font-weight: 600; }
+
+/* ---- grid layout ---- */
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 860px) { .row2 { grid-template-columns: 1fr; } }
+
+/* ---- table view (accessibility) ---- */
+details.tableview { margin-top: 14px; }
+details.tableview summary {
+  font-size: 13px; color: var(--ink-2); cursor: pointer;
+}
+details.tableview table {
+  border-collapse: collapse; margin-top: 10px; font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+details.tableview th, details.tableview td {
+  border: 1px solid var(--border); padding: 4px 9px; text-align: right;
+}
+details.tableview th { color: var(--ink-2); font-weight: 550; }
+details.tableview td:first-child, details.tableview th:first-child { text-align: left; }
+
+/* ---- tooltip ---- */
+#tip {
+  position: fixed; pointer-events: none; opacity: 0;
+  background: var(--ink-1); color: var(--surface-1);
+  font-size: 12px; padding: 6px 9px; border-radius: 6px;
+  transition: opacity .1s; z-index: 9999; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-box { padding: 36px 20px; text-align: center; color: var(--ink-muted); }
+.pill {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  padding: 3px 8px; border-radius: 20px; text-transform: uppercase;
+}
+footer.foot {
+  margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--ink-muted); line-height: 1.7;
+}
+</style>
+</head>
+<body>
+<div id="tip"></div>
+
+<div class="wrap">
+  <header class="top">
+    <h1>SkyBurn</h1>
+    <span class="tagline">Harmonized burning activity calendar</span>
+  </header>
+  <p class="subhead">
+    Active fire hotspots from MODIS and the VIIRS satellites, placed on one
+    consistent scale &mdash; so a change in the graph means a change in the
+    fires, not a change in the satellite watching them.
+  </p>
+  <div class="card">
+    <h2>Area of interest</h2>
+    <p class="note">
+      Draw a box on the map, pick a preset, or type coordinates.
+    </p>
+    <div class="controls">
+      <select id="preset">
+        <option value="69.3,27.7,75.4,34.0">Punjab region (Pakistan)</option>
+        <option value="60.9,23.6,77.1,37.1">Pakistan</option>
+        <option value="-124.5,32.5,-114.0,42.0">California</option>
+        <option value="-74.0,-18.0,-44.0,5.0">Amazon basin</option>
+        <option value="">Entire dataset</option>
+      </select>
+      <span class="spacer"></span>
+      <label style="font-size:13px;color:var(--ink-2)">W <input type="number" id="bw" step="0.1"></label>
+      <label style="font-size:13px;color:var(--ink-2)">S <input type="number" id="bs" step="0.1"></label>
+      <label style="font-size:13px;color:var(--ink-2)">E <input type="number" id="be" step="0.1"></label>
+      <label style="font-size:13px;color:var(--ink-2)">N <input type="number" id="bn" step="0.1"></label>
+      <button class="primary" id="go">Analyze</button>
+    </div>
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div class="map-caption" id="map-caption" style="display:none"></div>
+    </div>
+  </div>
+
+  <div id="out"></div>
+  <div id="loading" class="card msg-box">Loading&hellip;</div>
+
+  <footer class="foot">
+    Hotspot data: <b>NASA FIRMS</b> (Fire Information for Resource Management
+    System) &mdash; MODIS (Terra/Aqua) and VIIRS (Suomi&nbsp;NPP, NOAA-20,
+    NOAA-21) active fire products.<br>
+    Harmonized counts are VIIRS-equivalent estimates produced by rescaling the
+    MODIS-only era using sensor-overlap ratios; they are an approximation, not
+    an official NASA product.
+  </footer>
+</div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/leaflet.draw.js"></script>
+<script>
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const SEQ = ["--seq-1","--seq-2","--seq-3","--seq-4","--seq-5","--seq-6","--seq-7"];
+const tip = document.getElementById("tip");
+let metric = "harmonized";
+let lastData = null;
+
+const fmt = n => Math.round(n).toLocaleString();
+
+const PLATFORM_LABELS = {
+  MODIS: "MODIS",
+  VIIRS_SNPP: "Suomi NPP",
+  VIIRS_NOAA20: "NOAA-20",
+  VIIRS_NOAA21: "NOAA-21",
+};
+const platformLabel = p => PLATFORM_LABELS[p] || p || "";
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function showTip(e, html) {
+  tip.innerHTML = html;
+  tip.style.opacity = 1;
+  const r = tip.getBoundingClientRect();
+  let x = e.clientX + 12, y = e.clientY - r.height - 8;
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - 12;
+  if (y < 8) y = e.clientY + 16;
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
+}
+const hideTip = () => { tip.style.opacity = 0; };
+
+let map = null, drawn = null;
+
+function initMap() {
+  if (typeof L === "undefined") throw new Error("Leaflet did not load");
+
+  map = L.map("map", { worldCopyJump: true }).setView([30.5, 72.5], 5);
+
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
+
+  drawn = new L.FeatureGroup().addTo(map);
+  setTimeout(() => { map.invalidateSize(); refitToSelection(); }, 200);
+  addEventListener("resize", () => { map.invalidateSize(); refitToSelection(); });
+
+  if (L.Control && L.Control.Draw) {
+    map.addControl(new L.Control.Draw({
+      draw: {
+        rectangle: { shapeOptions: { color: cssv("--series-1"), weight: 2, fillOpacity: 0.08 } },
+        polygon: false, polyline: false, circle: false, marker: false, circlemarker: false
+      },
+      edit: { featureGroup: drawn }
+    }));
+
+    map.on(L.Draw.Event.CREATED, e => {
+      drawn.clearLayers();
+      drawn.addLayer(e.layer);
+      const b = e.layer.getBounds();
+      setBoxInputs([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+      load();
+    });
+  }
+}
+
+try {
+  initMap();
+} catch (err) {
+  console.warn("Map off:", err.message);
+  document.getElementById("map").outerHTML =
+    `<div style="padding:18px;border:1px dashed var(--baseline);border-radius:8px;
+                 color:var(--ink-muted);font-size:13px;line-height:1.6">
+       <b style="color:var(--ink-2)">Map unavailable</b> &mdash; the map library or
+       tiles could not load. Everything else works: pick a preset above or type
+       the W/S/E/N coordinates and press Analyze.
+     </div>`;
+}
+
+function setBoxInputs(bb) {
+  const ids = ["bw","bs","be","bn"];
+  if (!bb) { ids.forEach(i => document.getElementById(i).value = ""); return; }
+  ids.forEach((id, i) => document.getElementById(id).value = bb[i].toFixed(2));
+}
+
+function getBoxInputs() {
+  const v = ["bw","bs","be","bn"].map(i => parseFloat(document.getElementById(i).value));
+  return v.every(Number.isFinite) ? v : null;
+}
+
+let cellLayer = null;
+let cellReq = 0;           
+
+async function showMonthOnMap(year, month) {
+  if (!map) return;
+  const bb = getBoxInputs();
+  const qs = new URLSearchParams({ year, month });
+  if (bb) qs.set("bbox", bb.join(","));
+
+  const myReq = ++cellReq;
+  let d;
+  try {
+    const r = await fetch("/api/cells?" + qs);
+    if (!r.ok) return;
+    d = await r.json();
+  } catch (e) { return; }
+
+  if (myReq !== cellReq) return;
+
+  if (cellLayer) { map.removeLayer(cellLayer); cellLayer = null; }
+  if (!d.cells || !d.cells.length) { captionFor(d, 0); return; }
+
+  // Scale to this month's own 95th percentile, so one extreme cell does not
+  // wash the rest out — the same rule the calendar uses.
+  const vals = d.cells.map(c => c.v).sort((a, b) => a - b);
+  const scale = vals[Math.floor(vals.length * 0.95)] || d.max || 1;
+  const sz = d.cell_size || 0.25;
+
+  const shapes = d.cells.map(c => {
+    const step = Math.min(SEQ.length - 1, Math.floor(c.v / scale * SEQ.length));
+    const col = cssv(SEQ[step]);
+    return L.rectangle(
+      [[c.lat, c.lon], [c.lat + sz, c.lon + sz]],
+      { color: col, weight: 0, fillColor: col, fillOpacity: 0.72 }
+    ).bindTooltip(`${fmt(c.v)} hotspots`, { sticky: true });
+  });
+
+  cellLayer = L.layerGroup(shapes).addTo(map);
+  captionFor(d, scale);
+}
+
+function captionFor(d, scale) {
+  const el = document.getElementById("map-caption");
+  if (!el) return;
+  el.style.display = "";
+
+  if (!d.cells || !d.cells.length) {
+    el.innerHTML = `<b>${MONTHS[d.month - 1]} ${d.year}</b><br>
+      No hotspots detected here.
+      <span class="hint">Click any month in the calendar below.</span>`;
+    return;
+  }
+
+  const sw = SEQ.map(s => `<i style="background:var(${s})"></i>`).join("");
+  el.innerHTML = `
+    <b>${MONTHS[d.month - 1]} ${d.year}</b> &middot; ${fmt(d.total)} hotspots
+    <div class="ramp"><span>low</span><span class="sw">${sw}</span><span>${fmt(scale)}+</span></div>
+    <span class="hint">Click any month in the calendar below.</span>`;
+}
+
+function refitToSelection() {
+  if (!map || !drawn) return;
+  const layers = drawn.getLayers();
+  if (!layers.length) return;
+  const b = layers[0].getBounds();
+  if (b && b.isValid()) map.fitBounds(b, { padding: [30, 30] });
+}
+
+function drawBoxOnMap(bb) {
+  if (!map || !drawn) return;       // map disabled -> nothing to draw
+  drawn.clearLayers();
+  if (!bb) return;
+  const rect = L.rectangle([[bb[1], bb[0]], [bb[3], bb[2]]], {
+    color: cssv("--series-1"), weight: 2, fillOpacity: 0.08
+  });
+  drawn.addLayer(rect);
+ 
+  map.invalidateSize();
+  map.fitBounds(rect.getBounds(), { padding: [30, 30] });
+}
+
+document.getElementById("preset").onchange = e => {
+  const v = e.target.value;
+  const bb = v ? v.split(",").map(Number) : null;
+  setBoxInputs(bb);
+  drawBoxOnMap(bb);
+  load();
+};
+document.getElementById("go").onclick = () => {
+  drawBoxOnMap(getBoxInputs());
+  load();
+};
+
+/*  LOAD*/
+async function load() {
+  const bb = getBoxInputs();
+  document.getElementById("loading").style.display = "";
+  document.getElementById("loading").textContent = "Analyzing…";
+  document.getElementById("out").innerHTML = "";
+
+  const qs = new URLSearchParams();
+  if (bb) qs.set("bbox", bb.join(","));
+  qs.set("metric", metric);
+
+  try {
+    const r = await fetch("/api/report?" + qs);
+    const d = await r.json();
+    if (!r.ok) {
+      document.getElementById("loading").textContent = d.error || "No data for this area.";
+      return;
+    }
+    lastData = d;
+    document.getElementById("loading").style.display = "none";
+    render(d);
+  } catch (err) {
+    document.getElementById("loading").textContent = "Could not reach the server: " + err.message;
+  }
+}
+
+/* RENDER*/
+function render(d) {
+  const out = document.getElementById("out");
+  out.innerHTML = [
+    statusCard(d),
+    calendarCard(d),
+    proofCard(d),
+    seasonRow(d),
+  ].join("");
+
+  wireCalendar(d);
+  drawSeries(d);
+  drawSeasonBars(d);
+  if (d.status && d.status.year) {
+    showMonthOnMap(d.status.year, d.status.month);
+    const sel = document.querySelector(
+      `table.cal td[data-y="${d.status.year}"][data-m="${d.status.month - 1}"]`);
+    if (sel) sel.classList.add("sel");
+  }
+}
+
+function statusCard(d) {
+  const s = d.status;
+  if (s.error) return "";
+
+  const colorFor = { high: "--critical", elevated: "--warning", normal: "--good", low: "--good", unknown: "--ink-muted" };
+  const iconFor = { high: "&#9888;", elevated: "&#9888;", normal: "&#10003;", low: "&#10003;", unknown: "?" };
+  const col = cssv(colorFor[s.level] || "--ink-muted");
+
+  const partial = s.is_partial
+    ? `<span class="pill" style="background:var(--plane);color:var(--ink-2);border:1px solid var(--border)">
+         month ${s.elapsed_pct}% elapsed &middot; projected</span>`
+    : "";
+
+  const delta = s.pct_vs_median == null ? "" :
+    `<small>${s.pct_vs_median > 0 ? "+" : ""}${s.pct_vs_median}% vs ${fmt(s.median)} median</small>`;
+
+  return `
+  <div class="card">
+    <h2>Current conditions</h2>
+    <p class="note">The latest month in the record, against the median of the
+      same month in previous years.</p>
+    <div class="status">
+      <span class="light" style="background:${col}"></span>
+      <div class="body">
+        <div class="label"><span aria-hidden="true">${iconFor[s.level] || ""}</span> ${s.label || "—"}
+          ${partial}</div>
+        <div class="hero">${fmt(s.current)} <small>hotspots &middot; ${s.month_name} ${s.year}</small></div>
+        <div style="margin:4px 0 2px">${delta}</div>
+        <p class="msg">${s.message}</p>
+      </div>
+      <div class="stats" style="border:0;padding:0;margin:0;flex:0 0 auto;flex-direction:column;gap:14px">
+        <div class="stat"><div class="k">Rank</div>
+          <div class="v">#${s.rank} <small>of ${s.rank_of} ${s.month_name}s</small></div></div>
+        <div class="stat"><div class="k">Median baseline</div>
+          <div class="v">${fmt(s.median)} <small>last ${s.baseline_n} yrs</small></div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function calendarCard(d) {
+  const c = d.calendar;
+  const scale = c.p95 > 0 ? c.p95 : c.max;
+
+  let rows = "";
+  c.years.slice().reverse().forEach(y => {
+    const i = c.years.indexOf(y);
+    let tds = "";
+    for (let m = 0; m < 12; m++) {
+      const v = c.values[i][m];
+      if (v == null) { tds += `<td></td>`; continue; }
+      const step = v <= 0 ? -1 : Math.min(SEQ.length - 1, Math.floor(v / scale * SEQ.length));
+      const bg = step < 0 ? "var(--seq-0)" : `var(${SEQ[step]})`;
+      tds += `<td data-v="${v}" data-y="${y}" data-m="${m}" style="background:${bg}"></td>`;
+    }
+    rows += `<tr><th class="yr">${y}</th>${tds}</tr>`;
+  });
+
+  const swatches = `<i style="background:var(--seq-0)"></i>` +
+    SEQ.map(s => `<i style="background:var(${s})"></i>`).join("");
+
+  return `
+  <div class="card">
+    <h2>Burning activity calendar</h2>
+    <p class="note">
+      Harmonized hotspot counts per month, ${c.years[0]}&ndash;${c.years[c.years.length-1]}.
+      Darker means more burning. Colour is scaled to the 95th percentile so one
+      extreme month does not flatten the rest.
+    </p>
+    <div class="cal-scroll">
+      <table class="cal">
+        <tr><th></th>${MONTHS.map(m => `<th>${m}</th>`).join("")}</tr>
+        ${rows}
+      </table>
+    </div>
+    <div class="ramp">
+      <span>none</span>
+      <span class="sw">${swatches}</span>
+      <span>${fmt(scale)}+ hotspots / month</span>
+    </div>
+    ${calTable(c)}
+  </div>`;
+}
+
+function calTable(c) {
+  let body = "";
+  c.years.slice().reverse().forEach(y => {
+    const i = c.years.indexOf(y);
+    const cells = c.values[i].map(v => `<td>${v == null ? "—" : fmt(v)}</td>`).join("");
+    body += `<tr><td>${y}</td>${cells}</tr>`;
+  });
+  return `
+  <details class="tableview">
+    <summary>View as table</summary>
+    <div style="overflow-x:auto">
+      <table><thead><tr><th>Year</th>${MONTHS.map(m => `<th>${m}</th>`).join("")}</tr></thead>
+      <tbody>${body}</tbody></table>
+    </div>
+  </details>`;
+}
+
+function wireCalendar(d) {
+  document.querySelectorAll("table.cal td[data-v]").forEach(td => {
+    td.onmousemove = e => showTip(e,
+      `<b>${MONTHS[+td.dataset.m]} ${td.dataset.y}</b> &middot; ${fmt(+td.dataset.v)} hotspots`
+      + (map ? `<br><span style="opacity:.7">click to map it</span>` : ""));
+    td.onmouseleave = hideTip;
+    td.onclick = () => {
+      document.querySelectorAll("table.cal td.sel").forEach(x => x.classList.remove("sel"));
+      td.classList.add("sel");
+      showMonthOnMap(+td.dataset.y, +td.dataset.m + 1);
+      document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+  });
+}
+
+function proofCard(d) {
+  const ch = d.harmonization.check || {};
+  const meta = d.harmonization.meta || {};
+
+  let verdict = "";
+  if (ch.verdict) {
+    verdict = `<div class="verdict">
+      <b>Why this matters.</b> ${ch.verdict}
+      Every jump in the raw line is a satellite arriving, not fires arriving
+      &mdash; harmonization removes them.</div>`;
+  }
+
+  const ratios = meta.global_ratios || {};
+  const ref = meta.reference;
+  const ratioCells = Object.keys(ratios)
+    .filter(p => p !== ref)
+    .map(p => `<div class="stat"><div class="k">${platformLabel(p)} scale factor</div>
+       <div class="v">${(+ratios[p]).toFixed(2)}&times;
+       <small>to ${platformLabel(ref)}</small></div></div>`)
+    .join("");
+
+  return `
+  <div class="card">
+    <h2>Raw record vs harmonized</h2>
+    <p class="note">
+      Annual totals. The raw line stacks every satellite together, which both
+      mixes incompatible scales and counts the same fire twice once two VIIRS
+      satellites are flying. The harmonized line uses one satellite per month,
+      rescaled onto ${platformLabel(ref) || "a single reference"}.
+    </p>
+    <svg class="chart" id="svg-series" height="260"></svg>
+    <div class="legend">
+      <span><i style="background:var(--series-1)"></i> Harmonized (VIIRS-equivalent)</span>
+      <span><i style="background:var(--series-2)"></i> Raw (all satellites stacked, unadjusted)</span>
+    </div>
+    ${verdict}
+    <div class="stats">
+      ${ratioCells}
+      <div class="stat"><div class="k">Raw jump at switch</div>
+        <div class="v" style="color:var(--critical)">${ch.raw_jump_pct != null ? (ch.raw_jump_pct > 0 ? "+" : "") + ch.raw_jump_pct + "%" : "—"}</div></div>
+      <div class="stat"><div class="k">Harmonized jump</div>
+        <div class="v" style="color:var(--good)">${ch.harmonized_jump_pct != null ? (ch.harmonized_jump_pct > 0 ? "+" : "") + ch.harmonized_jump_pct + "%" : "—"}</div></div>
+      <div class="stat"><div class="k">Record</div>
+        <div class="v">${d.coverage.start_year}&ndash;${d.coverage.end_year} <small>${d.coverage.months} months</small></div></div>
+      <div class="stat"><div class="k">Export</div>
+        <div class="v"><button id="csv" style="padding:4px 10px;font-size:13px">Download CSV</button></div></div>
+    </div>
+  </div>`;
+}
+
+function drawSeries(d) {
+  const svg = document.getElementById("svg-series");
+  if (!svg || !d.series) return;
+
+  const byYear = {};
+  d.series.labels.forEach((lab, i) => {
+    const y = +lab.slice(0, 4);
+    byYear[y] = byYear[y] || { h: 0, r: 0 };
+    byYear[y].h += d.series.harmonized[i];
+    byYear[y].r += d.series.raw[i];
+  });
+  const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+  if (years.length < 2) { svg.innerHTML = ""; return; }
+
+  const W = svg.clientWidth || 860, H = 260;
+  const P = { t: 14, r: 16, b: 28, l: 52 };
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+
+  const maxV = Math.max(...years.map(y => Math.max(byYear[y].h, byYear[y].r))) * 1.08 || 1;
+  const X = i => P.l + (years.length === 1 ? iw / 2 : i / (years.length - 1) * iw);
+  const Y = v => P.t + ih - (v / maxV) * ih;
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => Math.round(maxV * f));
+  const grid = ticks.map(t => `
+    <line x1="${P.l}" y1="${Y(t)}" x2="${W - P.r}" y2="${Y(t)}"
+          stroke="var(--grid)" stroke-width="1"/>
+    <text x="${P.l - 8}" y="${Y(t) + 4}" text-anchor="end"
+          font-size="11" fill="var(--ink-muted)">${fmt(t)}</text>`).join("");
+
+  const step = years.length > 14 ? Math.ceil(years.length / 9) : 1;
+  const xlab = years.map((y, i) => (i % step === 0 || i === years.length - 1)
+    ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" font-size="11"
+             fill="var(--ink-muted)">${y}</text>` : "").join("");
+
+  const path = k => years.map((y, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(byYear[y][k]).toFixed(1)}`).join(" ");
+  const spans = d.harmonization.meta?.spans || {};
+  let marker = "";
+  const starts = Object.keys(spans)
+    .map(p => ({ p, y: spans[p][0] }))
+    .filter(s => years.includes(s.y) && s.y > years[0])
+    .sort((a, b) => a.y - b.y);
+
+  if (starts.length) {
+    marker = starts.map((s, i) => {
+      const x = X(years.indexOf(s.y));
+      const ty = P.t + 11 + (i % 2) * 13;  
+      return `
+      <line x1="${x}" y1="${P.t}" x2="${x}" y2="${P.t + ih}"
+            stroke="var(--baseline)" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="${x + 5}" y="${ty}" font-size="10" fill="var(--ink-muted)">${platformLabel(s.p)} joins</text>`;
+    }).join("");
+  } else {
+    const vs = d.harmonization.meta?.viirs_start || d.harmonization.check?.switch_year;
+    if (vs && years.includes(vs)) {
+      const x = X(years.indexOf(vs));
+      marker = `
+      <line x1="${x}" y1="${P.t}" x2="${x}" y2="${P.t + ih}"
+            stroke="var(--baseline)" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="${x + 5}" y="${P.t + 11}" font-size="10" fill="var(--ink-muted)">VIIRS begins</text>`;
+    }
+  }
+
+  const dots = k => years.map((y, i) =>
+    `<circle cx="${X(i)}" cy="${Y(byYear[y][k])}" r="3.5"
+             fill="var(--series-${k === "h" ? 1 : 2})"
+             stroke="var(--surface-1)" stroke-width="2"/>`).join("");
+
+  const hits = years.map((y, i) => {
+    const w = iw / years.length;
+    return `<rect x="${X(i) - w / 2}" y="${P.t}" width="${w}" height="${ih}"
+              fill="transparent" data-y="${y}"
+              data-h="${Math.round(byYear[y].h)}" data-r="${Math.round(byYear[y].r)}"/>`;
+  }).join("");
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = `${grid}${marker}
+    <line x1="${P.l}" y1="${P.t + ih}" x2="${W - P.r}" y2="${P.t + ih}"
+          stroke="var(--baseline)" stroke-width="1"/>
+    <path d="${path("r")}" fill="none" stroke="var(--series-2)" stroke-width="2"
+          stroke-linejoin="round"/>
+    <path d="${path("h")}" fill="none" stroke="var(--series-1)" stroke-width="2"
+          stroke-linejoin="round"/>
+    ${dots("r")}${dots("h")}${xlab}${hits}`;
+
+  svg.querySelectorAll("rect[data-y]").forEach(r => {
+    r.onmousemove = e => showTip(e,
+      `<b>${r.dataset.y}</b><br>Harmonized ${(+r.dataset.h).toLocaleString()}` +
+      `<br>Raw ${(+r.dataset.r).toLocaleString()}`);
+    r.onmouseleave = hideTip;
+  });
+
+  const btn = document.getElementById("csv");
+  if (btn) btn.onclick = () => {
+    const bb = getBoxInputs();
+    const qs = bb ? "?bbox=" + bb.join(",") : "";
+    location.href = "/api/export" + qs;
+  };
+}
+
+
+function seasonStats(s) {
+  const seasons = s.seasons || [];
+
+  if (!seasons.length) {
+    return `<div class="stat"><div class="k">Season</div>
+      <div class="v">None <small>activity is spread through the year</small></div>
+    </div>`;
+  }
+
+  const ordered = seasons.slice().sort((a, b) => a.months[0] - b.months[0]);
+
+  return ordered.map((x, i) => {
+    const peak = x.months.length > 1
+      ? ` <small>peak ${x.peak_month_name}</small>` : "";
+    return `
+    <div class="stat">
+      <div class="k">${ordered.length > 1 ? `Season ${i + 1}` : "Season"}</div>
+      <div class="v">${x.label}${peak}</div>
+    </div>`;
+  }).join("");
+}
+
+function seasonRow(d) {
+  const s = d.season, sh = d.shift;
+  if (s.error) return "";
+
+  const shiftBody = sh.error
+    ? `<p class="msg" style="color:var(--ink-muted)">${sh.error}</p>`
+    : `<div class="hero" style="font-size:30px;font-weight:650;letter-spacing:-0.02em">
+         ${sh.direction === "stable" ? "Stable"
+           : (sh.shift_days_per_decade > 0 ? "" : "") + Math.abs(sh.shift_days_per_decade) + " days"}
+         <small style="font-size:14px;font-weight:450;color:var(--ink-2)">
+           ${sh.direction === "stable" ? "" : "per decade " + (sh.direction === "earlier" ? "earlier" : "later")}</small>
+       </div>
+       <p class="msg">${sh.verdict}</p>
+       <div class="stats">
+         <div class="stat"><div class="k">Trend strength</div>
+           <div class="v">r = ${sh.correlation}</div></div>
+         <div class="stat"><div class="k">Years analysed</div>
+           <div class="v">${sh.years_covered[0]}&ndash;${sh.years_covered[1]}</div></div>
+       </div>`;
+
+  return `
+  <div class="row2">
+    <div class="card">
+      <h2>Fire season</h2>
+      <p class="note">Long-run average hotspots by month. A season is a run of
+        months above the year's average; a region can have more than one.</p>
+      <svg class="chart" id="svg-season" height="170"></svg>
+      <div class="stats">
+        ${seasonStats(s)}
+        <div class="stat"><div class="k">Share of year</div>
+          <div class="v">${s.season_share_pct}%</div></div>
+      </div>
+      <div class="verdict"><b>${s.pattern}.</b> ${s.pattern_note}</div>
+    </div>
+
+    <div class="card">
+      <h2>Season shift</h2>
+      <p class="note">Where the mid-point of each year's burning falls, and
+        whether it is moving through the calendar.</p>
+      ${shiftBody}
+    </div>
+  </div>`;
+}
+
+function drawSeasonBars(d) {
+  const svg = document.getElementById("svg-season");
+  if (!svg || !d.season || d.season.error) return;
+
+  const vals = d.season.monthly_mean;
+  const inSeason = new Set(d.season.season_months);
+  const W = svg.clientWidth || 420, H = 170;
+  const P = { t: 10, r: 8, b: 24, l: 44 };
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+  const maxV = Math.max(...vals) * 1.06 || 1;
+
+  const bw = iw / 12;
+  const bars = vals.map((v, i) => {
+    const h = Math.max(2, (v / maxV) * ih);
+    const x = P.l + i * bw + 2;           
+    const w = Math.max(1, bw - 4);
+    const inS = inSeason.has(i + 1);
+    return `<rect x="${x}" y="${P.t + ih - h}" width="${w}" height="${h}" rx="3"
+              fill="var(--series-1)" opacity="${inS ? 1 : 0.38}"
+              data-m="${i}" data-v="${v}"/>`;
+  }).join("");
+
+  const ticks = [0, 0.5, 1].map(f => Math.round(maxV * f));
+  const grid = ticks.map(t => `
+    <line x1="${P.l}" y1="${P.t + ih - (t / maxV) * ih}" x2="${W - P.r}"
+          y2="${P.t + ih - (t / maxV) * ih}" stroke="var(--grid)" stroke-width="1"/>
+    <text x="${P.l - 7}" y="${P.t + ih - (t / maxV) * ih + 4}" text-anchor="end"
+          font-size="10" fill="var(--ink-muted)">${fmt(t)}</text>`).join("");
+
+  const labs = MONTHS.map((m, i) => `
+    <text x="${P.l + i * bw + bw / 2}" y="${H - 7}" text-anchor="middle"
+          font-size="9.5" fill="var(--ink-muted)">${m[0]}</text>`).join("");
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = `${grid}${bars}
+    <line x1="${P.l}" y1="${P.t + ih}" x2="${W - P.r}" y2="${P.t + ih}"
+          stroke="var(--baseline)" stroke-width="1"/>${labs}`;
+
+  svg.querySelectorAll("rect[data-m]").forEach(r => {
+    r.onmousemove = e => showTip(e,
+      `<b>${MONTHS[+r.dataset.m]}</b> &middot; ${fmt(+r.dataset.v)} avg hotspots`);
+    r.onmouseleave = hideTip;
+  });
+}
+
+/*  BOOT */
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (lastData) { drawSeries(lastData); drawSeasonBars(lastData); }
+  }, 180);
+});
+
+
+setBoxInputs([69.3, 27.7, 75.4, 34.0]);
+drawBoxOnMap([69.3, 27.7, 75.4, 34.0]);
+load();
+</script>
+</body>
+</html>
