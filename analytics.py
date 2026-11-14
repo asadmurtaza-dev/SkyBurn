@@ -1,18 +1,3 @@
-"""
-SkyBurn - Analytics
-====================
-Derives, from the harmonized time series, the things an emergency manager
-actually needs:
-
-  1. Burning calendar  -- the year x month heatmap the challenge asks for
-  2. Current status    -- this month against the historical median
-  3. Fire season       -- when the season starts and ends
-  4. Season shift      -- how far the season has moved over the record
-  5. Top months        -- the worst months on record
-
-Everything runs on the harmonized column, so the sensor of origin drops out.
-"""
-
 import numpy as np
 import pandas as pd
 
@@ -30,10 +15,6 @@ def _ordinal(n: int) -> str:
         suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suffix}"
 
-
-# ---------------------------------------------------------------- #
-#  1. Burning calendar
-# ---------------------------------------------------------------- #
 
 def calendar(series: pd.DataFrame, value_col: str = VALUE_COL) -> dict:
     """
@@ -61,10 +42,6 @@ def calendar(series: pd.DataFrame, value_col: str = VALUE_COL) -> dict:
         "p95": float(np.percentile(flat, 95)) if flat.size else 0.0,
     }
 
-
-# ---------------------------------------------------------------- #
-#  2. Current status -- against the historical median
-# ---------------------------------------------------------------- #
 
 def current_status(series: pd.DataFrame, value_col: str = VALUE_COL,
                    baseline_years: int = 10, as_of: "pd.Timestamp" = None) -> dict:
@@ -125,7 +102,6 @@ def current_status(series: pd.DataFrame, value_col: str = VALUE_COL,
     ratio = current / median if median > 0 else None
     pct = (current - median) / median * 100 if median > 0 else None
 
-    # Level: above p90 and well above median -> high; moderately above -> elevated
     if current >= p90 and ratio and ratio >= 1.5:
         level = "high"
     elif ratio and ratio >= 1.2:
@@ -135,9 +111,6 @@ def current_status(series: pd.DataFrame, value_col: str = VALUE_COL,
     else:
         level = "normal"
 
-    # Rank among the same month across all years.
-    # Use the pro-rated projection for a partial month, otherwise the rank and
-    # the percentage would contradict each other.
     all_same_month = s[s["month"] == m][["year", value_col]].copy()
     all_same_month.loc[all_same_month["year"] == y, value_col] = current
     all_same_month = all_same_month.sort_values(value_col, ascending=False)
@@ -188,10 +161,6 @@ def current_status(series: pd.DataFrame, value_col: str = VALUE_COL,
     }
 
 
-# ---------------------------------------------------------------- #
-#  3. Fire season
-# ---------------------------------------------------------------- #
-
 def fire_season(series: pd.DataFrame, value_col: str = VALUE_COL,
                 threshold: float = 0.5) -> dict:
     """
@@ -231,8 +200,6 @@ def fire_season(series: pd.DataFrame, value_col: str = VALUE_COL,
     cutoff = float(monthly.mean())
     above = [int(m) for m in monthly.index if monthly[m] > cutoff]
 
-    # A flat year has no season at all. Falling back to the peak month here
-    # would print "Season: Jan" directly above the words "no distinct season".
     flat = bool(monthly.std() / monthly.mean() < 0.15) if monthly.mean() > 0 else True
     if not above or flat:
         above = []
@@ -241,8 +208,6 @@ def fire_season(series: pd.DataFrame, value_col: str = VALUE_COL,
     season_share = (float(monthly[above].sum() / monthly.sum() * 100)
                     if above else 0.0)
 
-    # Pattern: tightly repeating months suggest agricultural burning;
-    # scattered activity suggests wildfire
     cv = float(monthly.std() / monthly.mean()) if monthly.mean() > 0 else 0
     if len(seasons) >= 2:
         pattern = f"{_count_word(len(seasons))} distinct seasons"
@@ -336,11 +301,6 @@ def _describe_run(run: list, monthly) -> dict:
         "total": round(total, 1),
     }
 
-
-# ---------------------------------------------------------------- #
-#  4. Season shift -- climate signal
-# ---------------------------------------------------------------- #
-
 def season_shift(series: pd.DataFrame, value_col: str = VALUE_COL) -> dict:
     """
     Finds each year's "centre of mass" — the point in the year by which half
@@ -378,8 +338,7 @@ def season_shift(series: pd.DataFrame, value_col: str = VALUE_COL) -> dict:
 
     df = pd.DataFrame(rows)
 
-    # Trend on circular data: unwrap first so the Dec->Jan boundary does not
-    # create a false jump
+
     c = df["center_month"].to_numpy()
     c_unwrapped = np.unwrap(c * (2 * np.pi / 12)) * (12 / (2 * np.pi))
 
@@ -419,11 +378,6 @@ def season_shift(series: pd.DataFrame, value_col: str = VALUE_COL) -> dict:
         "years_covered": [int(yrs.min()), int(yrs.max())],
     }
 
-
-# ---------------------------------------------------------------- #
-#  5. Top months
-# ---------------------------------------------------------------- #
-
 def top_months(series: pd.DataFrame, n: int = 10,
                value_col: str = VALUE_COL) -> list:
     """The worst months on record."""
@@ -438,8 +392,6 @@ def top_months(series: pd.DataFrame, n: int = 10,
         for _, r in s.iterrows()
     ]
 
-
-# ---------------------------------------------------------------- #
 
 def full_report(series: pd.DataFrame, meta: dict = None,
                 check: dict = None, value_col: str = VALUE_COL) -> dict:
