@@ -1,35 +1,11 @@
-"""
-SkyBurn - FIRMS data fetcher
-=============================
-Retrieves MODIS and VIIRS active fire hotspots from NASA FIRMS.
-
-Two routes:
-  1. ARCHIVE -> the historical record (2000 to last week). Requested manually
-                from https://firms.modaps.eosdis.nasa.gov/download/ — a download
-                link arrives by email. Drop the CSVs into data/archive/.
-  2. API     -> recent data (last few days). Needs a free MAP_KEY:
-                https://firms.modaps.eosdis.nasa.gov/api/map_key/
-
-NOTE: the API returns only a short window per request (FIRMS documents 1-10
-days; 5 is the safe assumption). Do not pull 25 years through it — take the
-history from the archive and use the API only for "what is burning now".
-
-NOTE: Suomi NPP stopped producing new data on 2 November 2026. Use NOAA-20 or
-NOAA-21 for current observations; S-NPP remains valid for the historical record.
-"""
-
 import os
 import io
 import time
 from datetime import date, timedelta
 from pathlib import Path
-
 import requests
 import pandas as pd
 
-# Load settings from a .env file when one is present. If python-dotenv is not
-# installed the module still works — the variable just has to come from the
-# shell environment instead.
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -137,21 +113,6 @@ def fetch_range(source: str, bbox: tuple, start: date, end: date,
     return pd.concat(chunks, ignore_index=True)
 
 
-# ---------------------------------------------------------------- #
-#  Platform identification
-# ---------------------------------------------------------------- #
-#
-# A "platform" is one satellite instrument. They must be kept apart, because
-# each one detects a different number of fires and two platforms flying at
-# once would otherwise double-count the same fire.
-#
-# FIRMS names its downloads by product code, not by instrument name, e.g.
-#   fire_archive_M-C61_846222.csv    -> MODIS Collection 6.1
-#   fire_archive_SV-C2_846224.csv    -> Suomi NPP VIIRS
-#   fire_archive_J1V-C2_846223.csv   -> NOAA-20 (JPSS-1) VIIRS
-#   fire_archive_J2V-C2_846225.csv   -> NOAA-21 (JPSS-2) VIIRS
-#
-# Longest codes first so "j1v" is tested before a bare "v".
 PLATFORM_CODES = [
     ("j1v",         "VIIRS_NOAA20"),
     ("j2v",         "VIIRS_NOAA21"),
@@ -249,10 +210,6 @@ def load_archive(pattern: str = "*.csv") -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-# ---------------------------------------------------------------- #
-#  Normalisation: MODIS and VIIRS ship different columns
-# ---------------------------------------------------------------- #
-
 def normalise(df: pd.DataFrame) -> pd.DataFrame:
     """
     Bring both sensors onto one common schema.
@@ -287,10 +244,6 @@ def normalise(df: pd.DataFrame) -> pd.DataFrame:
     out["frp"] = pd.to_numeric(df.get("frp"), errors="coerce")
     out["daynight"] = df.get("daynight", pd.NA)
 
-    # ---- platform and sensor family ----
-    # platform = the individual satellite (VIIRS_SNPP, VIIRS_NOAA20, ...),
-    #            which is what the harmonization calibrates against.
-    # sensor   = the instrument family (MODIS / VIIRS), kept for display.
     if "platform" in df.columns:
         out["platform"] = df["platform"].astype(str)
     else:
@@ -304,10 +257,7 @@ def normalise(df: pd.DataFrame) -> pd.DataFrame:
     )
     out["pixel_km"] = out["sensor"].map({"MODIS": 1.0, "VIIRS": 0.375})
 
-    # ---- confidence onto one scale ----
-    # MODIS reports 0-100; VIIRS reports l (low) / n (nominal) / h (high).
-    # The FIRMS FAQ states these are NOT the same scale, so both are mapped
-    # into low/medium/high buckets rather than compared directly.
+
     conf = df.get("confidence", pd.Series(pd.NA, index=df.index))
     out["confidence"] = _bucket_confidence(conf, out["sensor"])
 
@@ -335,9 +285,6 @@ def _bucket_confidence(conf, sensor) -> pd.Series:
     result[modis_mask & (conf_num > 80)] = "high"
 
     return result
-
-
-# ---------------------------------------------------------------- #
 
 PRESETS = {
     # west, south, east, north
