@@ -1,51 +1,12 @@
-"""
-SkyBurn - Harmonization engine
-================================
-The core problem this challenge poses: the hotspot record is split across
-satellites whose counts cannot be compared directly.
-
-Why not:
-  - a MODIS hotspot is the centre of a 1 km pixel
-  - a VIIRS hotspot is the centre of a 375 m pixel
-  - VIIRS therefore detects smaller fires, and performs better at night
-  => VIIRS reports far more hotspots than MODIS for THE SAME fires.
-
-And it is not only MODIS vs VIIRS. There are several VIIRS satellites — Suomi
-NPP (2012-2026), NOAA-20 (2018-) and NOAA-21 (2023-) — which flew at the same
-time. Adding them together counts the same fire two or three times, and creates
-a fresh artificial step every time a new satellite launches.
-
-So the record is treated as a set of PLATFORMS, and every platform is placed on
-the scale of one reference platform:
-
-  1. Pick a reference platform (the one overlapping the most of the record)
-  2. For every other platform, measure its ratio to the reference over the
-     period where both were flying
-  3. For each month, use exactly ONE platform — the best one available — and
-     rescale it to the reference
-  => one continuous series, no double counting, no launch-day steps
-
-This is an approximation, not an official product. Say so when presenting it.
-"""
-
 import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------- #
 #  Config
-# ---------------------------------------------------------------- #
 
-GRID_DEG = 0.25          # cell size in degrees (~27 km)
-FALLBACK_RATIO = 2.5     # MODIS -> VIIRS default when no overlap exists
-
-# How strongly a cell's own ratio is pulled toward the global one, expressed
-# in platform counts. A cell with this many detections sits halfway between
-# its own estimate and the global ratio. Higher = smoother, more global.
+GRID_DEG = 0.25         
+FALLBACK_RATIO = 2.5    
 SHRINKAGE_COUNTS = 25
 
-# Which platform to express everything in. Suomi NPP is the natural choice:
-# it overlaps MODIS at one end and the NOAA satellites at the other, so every
-# other platform can be tied to it directly.
 REFERENCE_PREFERENCE = [
     "VIIRS_SNPP",
     "VIIRS_NOAA20",
@@ -55,11 +16,7 @@ REFERENCE_PREFERENCE = [
 
 VIIRS_PLATFORMS = {"VIIRS_SNPP", "VIIRS_NOAA20", "VIIRS_NOAA21"}
 
-
-# ---------------------------------------------------------------- #
 #  Step 1: grid + monthly counts per platform
-# ---------------------------------------------------------------- #
-
 def add_grid(df: pd.DataFrame, cell: float = GRID_DEG) -> pd.DataFrame:
     """Assign every hotspot to a grid cell."""
     out = df.copy()
@@ -90,7 +47,7 @@ def monthly_counts(df: pd.DataFrame) -> pd.DataFrame:
     return counts
 
 
-MIN_MONTH_COVERAGE = 0.8   # a boundary month must be this complete to count
+MIN_MONTH_COVERAGE = 0.8  
 
 
 def platform_spans(counts: pd.DataFrame, date_ranges: dict = None) -> dict:
@@ -119,8 +76,6 @@ def platform_spans(counts: pd.DataFrame, date_ranges: dict = None) -> dict:
     c = counts[counts["count"] > 0].copy()
     c["ym"] = c["year"] * 12 + (c["month"] - 1)
 
-    # How current the dataset is overall. A platform reaching this date is
-    # still flying; one stopping well short of it has ended.
     data_end = None
     if date_ranges:
         ends = [v[1] for v in date_ranges.values() if pd.notna(v[1])]
@@ -134,17 +89,13 @@ def platform_spans(counts: pd.DataFrame, date_ranges: dict = None) -> dict:
         if date_ranges and platform in date_ranges:
             first, last = date_ranges[platform]
 
-            # First month: a platform that began mid-month really does have a
-            # short first month, so drop it when it is mostly missing.
             if pd.notna(first):
                 days = pd.Period(f"{first.year}-{first.month:02d}").days_in_month
                 covered = (days - first.day + 1) / days
                 if covered < MIN_MONTH_COVERAGE:
                     lo += 1
 
-            # Last month: only trim if this platform STOPPED. If it runs to
-            # within a week of the newest data anywhere, it is still flying and
-            # its short final month is just the present month.
+
             if pd.notna(last) and data_end is not None:
                 stopped = (data_end - last).days > 7
                 days = pd.Period(f"{last.year}-{last.month:02d}").days_in_month
@@ -180,9 +131,7 @@ def pick_reference(spans: dict) -> str:
     return max(spans, key=lambda p: spans[p][1] - spans[p][0])
 
 
-# ---------------------------------------------------------------- #
 #  Step 2: calibrate every platform against the reference
-# ---------------------------------------------------------------- #
 
 def compute_ratios(counts: pd.DataFrame, reference: str, spans: dict):
     """
@@ -253,8 +202,6 @@ def compute_ratios(counts: pd.DataFrame, reference: str, spans: dict):
         global_ratios[platform] = float(total_ref / total_plat)
         overlaps[platform] = (ov_lo // 12, ov_hi // 12, int(ov_hi - ov_lo + 1))
 
-        # Per-cell ratios, because the detection advantage differs between
-        # dense forest and open cropland.
         per_cell = (
             ov.groupby("cell")
             .agg(ref=(reference, "sum"), plat=(platform, "sum"),
@@ -263,27 +210,10 @@ def compute_ratios(counts: pd.DataFrame, reference: str, spans: dict):
         )
 
         if not per_cell.empty:
-            # SELECTION BIAS, AGAIN — this time at cell level.
-            #
-            # The obvious move is to keep only cells with enough counts, e.g.
-            # plat >= 20. But `plat` is the ratio's denominator, so that keeps
-            # the cells where this platform happened to over-detect, and the
-            # ratios come out systematically low. Measured on synthetic data
-            # with a known 2.6 ratio, a plat >= 20 filter returned 2.41 — a
-            # 10% error that reappears as a step at the era boundary.
-            #
-            # So: no threshold, no selection. Every cell is kept and shrunk
-            # toward the global ratio in proportion to how little data it has.
-            # A cell with no counts lands exactly on the global ratio; a cell
-            # with plenty keeps its own.
+          
             w = SHRINKAGE_COUNTS
             g = global_ratios[platform]
             per_cell["ratio"] = (per_cell["ref"] + w * g) / (per_cell["plat"] + w)
-
-            # Renormalise so the per-cell ratios reproduce the overall ratio
-            # exactly. Without this the per-cell path and the global path
-            # disagree, which shows up as a step at the era boundary — the
-            # very artefact this whole module exists to remove.
             rescaled_total = (per_cell["plat"] * per_cell["ratio"]).sum()
             covered_ref = per_cell["ref"].sum()
             if rescaled_total > 0 and covered_ref > 0:
@@ -302,10 +232,7 @@ def _family_fallback(platform: str, reference: str) -> float:
         return 1.0
     return FALLBACK_RATIO if r_viirs else 1.0 / FALLBACK_RATIO
 
-
-# ---------------------------------------------------------------- #
 #  Step 3: one platform per month, rescaled to the reference
-# ---------------------------------------------------------------- #
 
 def harmonize(counts: pd.DataFrame, date_ranges: dict = None) -> tuple:
     """
@@ -343,14 +270,6 @@ def harmonize(counts: pd.DataFrame, date_ranges: dict = None) -> tuple:
 
     wide["ym"] = wide["year"] * 12 + (wide["month"] - 1)
 
-    # Priority when the reference is unavailable: the platform needing the
-    # LEAST rescaling, because every unit of rescaling is a unit of
-    # assumption. A sister VIIRS satellite sits near 1.0 and is close to a
-    # drop-in substitute; MODIS needs a ~2.7x scale-up and is a last resort,
-    # however long its record. Ties go to the longer overlap.
-    #
-    # Ranking by overlap length instead would pick MODIS over NOAA-20 for the
-    # present month purely because MODIS has flown longer — exactly backwards.
     others = [p for p in platforms if p != reference]
     others.sort(key=lambda p: (
         abs(np.log(max(global_ratios.get(p, 1.0), 1e-9))),
@@ -358,7 +277,6 @@ def harmonize(counts: pd.DataFrame, date_ranges: dict = None) -> tuple:
     ))
     priority = [reference] + others
 
-    # raw = the naive stack of everything, kept so the app can show the error
     wide["raw"] = wide[platforms].sum(axis=1)
 
     harmonized = np.zeros(len(wide))
@@ -381,17 +299,6 @@ def harmonize(counts: pd.DataFrame, date_ranges: dict = None) -> tuple:
         counts_here = wide.loc[take, platform].to_numpy()
         values = counts_here * ratio.to_numpy()[take]
 
-        # Per-cell ratios decide WHERE the activity sits; the global ratio
-        # decides HOW MUCH there was. Without this the two disagree.
-        #
-        # A per-cell ratio is a ratio of two noisy counts, and the expected
-        # value of such a ratio sits above the true one (Jensen's inequality,
-        # since 1/x is convex). Multiply independent counts by those ratios and
-        # the reconstructed era comes out systematically high — measured on
-        # synthetic data with a known answer, the MODIS era landed 17% above
-        # the truth. Rescaling the era total back onto the globally calibrated
-        # total removes that, while the per-cell ratios still redistribute the
-        # activity between cells.
         if platform != reference:
             target = counts_here.sum() * global_ratios[platform]
             if values.sum() > 0 and target > 0:
@@ -407,8 +314,7 @@ def harmonize(counts: pd.DataFrame, date_ranges: dict = None) -> tuple:
         wide["source_platform"] == reference, "reference", "rescaled"
     )
 
-    # Family totals, for display only — these are raw, uncalibrated sums and
-    # must not be used for analysis.
+  
     viirs_cols = [p for p in platforms if p in VIIRS_PLATFORMS]
     modis_cols = [p for p in platforms if p not in VIIRS_PLATFORMS]
     wide["VIIRS"] = wide[viirs_cols].sum(axis=1) if viirs_cols else 0
@@ -435,10 +341,8 @@ def harmonize(counts: pd.DataFrame, date_ranges: dict = None) -> tuple:
     return wide, meta
 
 
-# ---------------------------------------------------------------- #
-#  Step 4: a time series for one area
-# ---------------------------------------------------------------- #
 
+#  Step 4: a time series for one area
 def area_series(harmonized: pd.DataFrame, bbox: tuple = None) -> pd.DataFrame:
     """
     Collapse the grid cells inside a bounding box into one monthly series.
@@ -476,10 +380,7 @@ def area_series(harmonized: pd.DataFrame, bbox: tuple = None) -> pd.DataFrame:
     )
     return series.reset_index(drop=True)
 
-
-# ---------------------------------------------------------------- #
 #  Step 5: discontinuity test -- did the harmonization work?
-# ---------------------------------------------------------------- #
 
 def discontinuity_check(series: pd.DataFrame, switch_year: int = None,
                         meta: dict = None) -> dict:
@@ -539,7 +440,6 @@ def _main_transition(series: pd.DataFrame, meta: dict = None) -> int:
     return int(series["year"].min()) + 11
 
 
-# ---------------------------------------------------------------- #
 
 def run(hotspots: pd.DataFrame, bbox: tuple = None, switch_year: int = None):
     """The whole pipeline in one call."""
@@ -589,10 +489,6 @@ if __name__ == "__main__":
 
     result["series"].to_csv("data/series.csv", index=False)
     result["harmonized"].to_csv("data/harmonized_grid.csv", index=False)
-
-    # Save the metadata for the app to read. The app must NOT recompute the
-    # ratios itself — doing that from the grid reintroduces the selection bias
-    # described in compute_ratios().
     meta_out = dict(result["meta"])
     meta_out["check"] = result["check"]
     with open("data/meta.json", "w") as f:
