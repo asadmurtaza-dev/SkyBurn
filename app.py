@@ -1,17 +1,3 @@
-"""
-SkyBurn - Web app backend
-==========================
-Flask server that serves the harmonized data to the frontend.
-
-To run:
-    python3 make_demo_data.py     # or drop a real FIRMS archive in data/archive/
-    python3 harmonize.py          # build the harmonized grid
-    python3 app.py                # start the server -> http://localhost:5000
-
-The harmonized grid is loaded into memory at startup and each request only
-subsets it by bounding box, which keeps responses fast.
-"""
-
 import io
 import json
 import os
@@ -30,6 +16,20 @@ import harmonize
 import analytics
 
 app = Flask(__name__, static_folder="static", static_url_path="")
+
+
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+
+@app.after_request
+def no_cache(resp):
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+  
+    resp.headers.pop("ETag", None)
+    resp.headers.pop("Last-Modified", None)
+    return resp
 
 GRID_PATH = Path("data/harmonized_grid.csv")
 META_PATH = Path("data/meta.json")
@@ -62,9 +62,6 @@ def load_grid():
         "year_max": int(GRID["year"].max()),
     }
 
-    # The ratio comes from harmonize.py. Do NOT recompute it here: it is only
-    # correct when taken from the overlap-period totals, and filtering the grid
-    # on "VIIRS > 0" reintroduces selection bias.
     if META_PATH.exists():
         with open(META_PATH) as f:
             saved = json.load(f)
@@ -73,8 +70,6 @@ def load_grid():
             if key in saved:
                 META[key] = saved[key]
 
-        # the year the reference platform starts — the main transition, which
-        # the frontend marks on the chart
         spans = saved.get("spans") or {}
         ref = saved.get("reference")
         if ref and ref in spans:
@@ -113,9 +108,9 @@ def parse_bbox():
     return (w, s, e, n)
 
 
-# ---------------------------------------------------------------- #
+
 #  Routes
-# ---------------------------------------------------------------- #
+
 
 @app.route("/")
 def index():
@@ -143,8 +138,7 @@ def api_report():
             "bbox": bbox,
         }), 404
 
-    # META must be passed: without it the transition year is guessed from the
-    # record length and comes out a year early.
+
     check = harmonize.discontinuity_check(series, meta=META)
     report = analytics.full_report(series, META, check, value_col=metric)
     report["bbox"] = bbox
@@ -258,12 +252,16 @@ def api_health():
     })
 
 
-if __name__ == "__main__":
-    print("SkyBurn starting ...")
-    load_grid()
+print("SkyBurn starting ...")
+load_grid()
 
+
+if __name__ == "__main__":
     host = os.environ.get("SKYBURN_HOST", "0.0.0.0")
-    port = int(os.environ.get("SKYBURN_PORT", "5000"))
+
+    port = int(os.environ.get("PORT")
+               or os.environ.get("SKYBURN_PORT")
+               or 5000)
 
     print(f"\n  -> http://localhost:{port}\n")
     app.run(host=host, port=port, debug=False)
