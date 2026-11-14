@@ -1,0 +1,52 @@
+{
+  "reference": "VIIRS_SNPP",
+  "platforms": [
+    "MODIS",
+    "VIIRS_NOAA20",
+    "VIIRS_SNPP"
+  ],
+  "global_ratios": {
+    "VIIRS_SNPP": 1.0,
+    "MODIS": 5.37,
+    "VIIRS_NOAA20": 0.958
+  },
+  "overlaps": {
+    "MODIS": [
+      2012,
+      2026,
+      177
+    ],
+    "VIIRS_NOAA20": [
+      2018,
+      2026,
+      103
+    ]
+  },
+  "cells_calibrated": {
+    "MODIS": 1198,
+    "VIIRS_NOAA20": 1169
+  },
+  "cells_total": 1219,
+  "spans": {
+    "MODIS": [
+      2000,
+      2026
+    ],
+    "VIIRS_NOAA20": [
+      2018,
+      2026
+    ],
+    "VIIRS_SNPP": [
+      2012,
+      2026
+    ]
+  },
+  "global_ratio": 5.37,
+  "check": {
+    "switch_year": 2012,
+    "raw_jump_pct": 627.7,
+    "harmonized_jump_pct": 16.5,
+    "improvement_pts": 611.2,
+    "verdict": "Across the 2012 sensor transition the raw record jumps +628%, while the harmonized record moves +16% \u2014 a 611-point reduction in the artificial step."
+  }
+}
