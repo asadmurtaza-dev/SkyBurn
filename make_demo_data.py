@@ -1,22 +1,3 @@
-"""
-SkyBurn - Demo data generator
-==============================
-Generates synthetic, FIRMS-shaped data so that:
-
-  1. the pipeline can be tested without waiting for an archive request
-  2. there is a working demo if the real archive does not arrive in time
-  3. the harmonization can be verified — because here we KNOW the right answer
-
-This is not real data. Never present it as real. It is a stand-in until the
-real FIRMS archive arrives.
-
-The pattern it generates (Punjab-like):
-  - an October-November peak every year (crop-residue burning season)
-  - MODIS from 2001, VIIRS from 2012
-  - VIIRS detects ~2.6x more hotspots (375 m vs 1 km pixels)
-  - the season drifts slightly earlier each year
-"""
-
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -28,15 +9,6 @@ WEST, SOUTH, EAST, NORTH = 69.3, 27.7, 75.4, 34.0
 
 END_YEAR = 2026
 END_MONTH = 11
-
-# The platforms to simulate, with the real FIRMS operating windows and the
-# detection ratio each one has relative to the true amount of burning.
-#
-# Suomi NPP is the reference at 1.0. MODIS detects far fewer fires because of
-# its 1 km pixel; NOAA-20 is a near-twin of S-NPP and so sits close to 1.0.
-#
-# NOAA-20 overlapping S-NPP from 2018 is the important case: if the pipeline
-# simply added the VIIRS platforms together, 2018 would show a fake doubling.
 PLATFORMS = {
     "MODIS":        {"start": (2001, 1), "end": (2026, 11), "ratio": 1 / 2.6},
     "VIIRS_SNPP":   {"start": (2012, 1), "end": (2026, 11), "ratio": 1.00,
@@ -58,10 +30,6 @@ FIRMS_CODE = {
     "VIIRS_NOAA21": "J2V-C2",
 }
 
-# Seasonal shape: Oct-Nov peak (index 0 = January)
-# Punjab burns twice a year, once after each harvest: wheat residue in
-# April-May, rice residue in October-November, with a quiet summer between.
-# Index 0 = January.
 SEASON = np.array([0.12, 0.10, 0.20, 0.70, 0.80, 0.25,
                    0.15, 0.18, 0.35, 1.00, 0.85, 0.22])
 
@@ -150,24 +118,17 @@ def generate() -> dict:
         for month in range(1, last_month + 1):
             truth = _true_activity(year, month)
 
-            # Record the true activity on the reference scale, so the
-            # harmonization can afterwards be scored against a known answer.
             truth_rows.append({
                 "year": year, "month": month,
                 "truth": truth * PLATFORMS[REFERENCE]["ratio"],
             })
 
-            # Every platform observes the SAME underlying fires, each with its
-            # own detection rate. This is what makes double counting visible:
-            # from 2018 three platforms are watching one set of fires.
+        
             for platform, cfg in PLATFORMS.items():
                 if not _in_window(year, month, cfg):
                     continue
                 n = RNG.poisson(truth * cfg["ratio"])
 
-                # A platform's final month can be cut short -- S-NPP stopped
-                # on 2 November 2026. The pipeline has to notice that rather
-                # than reading it as a collapse in burning.
                 max_day = 31
                 if (year, month) == tuple(cfg["end"]):
                     max_day = cfg.get("last_day", 31)
