@@ -1,14 +1,3 @@
-"""
-SkyBurn - Archive checker
-==========================
-Run this FIRST, as soon as the real FIRMS CSVs arrive:
-
-    python3 check_archive.py
-
-It reports whether the files are usable and, when something is wrong, what to
-do about it. Much better to find out now than at 2am during the hackathon.
-"""
-
 import sys
 from pathlib import Path
 
